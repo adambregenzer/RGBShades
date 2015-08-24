@@ -27,6 +27,7 @@
 #define CHIPSET     WS2811
 
 // Global maximum brightness value, maximum 255
+#define MAXBRIGHTNESS 100
 #define MAXBRIGHTNESS 72
 #define STARTBRIGHTNESS 127
 byte currentBrightness = STARTBRIGHTNESS; // 0-255 will be scaled to 0-MAXBRIGHTNESS
@@ -54,7 +55,10 @@ void setup() {
 }
 
 // list of functions that will be displayed
-functionList effectList[] = {threeSine,
+//functionList effectList[] = {hackadayText, hackadayTextMulti};
+//functionList effectList[] = {hackadayTextMulti,hackadayText,hackadayTextWhite,hackadayTextInvert,
+functionList effectList[] = {hackadayText,hackadayTextMulti,
+                             threeSine,
                              threeDee,
                              plasma,
                              confetti,
