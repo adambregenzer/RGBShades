@@ -19,120 +19,124 @@
 //   [Press and hold] the SW2 button (one second) to reset brightness to startup value
 
 
-// RGB Shades data output to LEDs is on pin 5
-#define LED_PIN  5
-
-// RGB Shades color order (Green/Red/Blue)
-#define COLOR_ORDER GRB
-#define CHIPSET     WS2811
-
-// Global maximum brightness value, maximum 255
-#define MAXBRIGHTNESS 72
-#define STARTBRIGHTNESS 127
-byte currentBrightness = STARTBRIGHTNESS; // 0-255 will be scaled to 0-MAXBRIGHTNESS
-
-// Include FastLED library and other useful files
 #include <FastLED.h>
+
+
+/* Constants
+ */
+#define LED_PIN  5          // RGB Shades data output to LEDs is on pin 5
+#define COLOR_ORDER GRB     // RGB Shades color order (Green/Red/Blue)
+#define CHIPSET     WS2811  // LED controller chipset
+#define MAXBRIGHTNESS 72    // Global maximum brightness value, maximum 255
+#define STARTBRIGHTNESS 127 // Beginning brightness
+#define STEPBRIGHTNESS 51   // Increase between brightness steps
+#define cycleTime 15000     // Time between switching effects
+#define hueTime 30          // Time between changes to hue
+
+
+/* Globals */
+byte currentBrightness = STARTBRIGHTNESS; // 0-255 will be scaled to 0-MAXBRIGHTNESS
+boolean effectInit = false; // indicates if a pattern has been recently switched
+uint16_t effectDelay = 0; // time between automatic effect changes
+unsigned long effectMillis = 0; // store the time of last effect function run
+unsigned long cycleMillis = 0; // store the time of last effect change
+unsigned long currentMillis; // store current loop's millis value
+unsigned long hueMillis; // store time of last hue change
+byte currentEffect = 0; // index to the currently running effect
+boolean autoCycle = true; // flag for automatic effect changes
+CRGBPalette16 currentPalette(RainbowColors_p); // global pallete storage
+byte cycleHue = 0; // global hue, changed periodically
+
+
 #include "XYmap.h"
-#include "utils.h"
-#include "effects.h"
 #include "buttons.h"
+#include "utils.h"
+#include "font.h"
+#include "effects.h"
 
-// Runs one time at the start of the program (power up or reset)
+
+/* Runs one time at the start of the program (power up or reset)
+ */
 void setup() {
+    // write FastLED configuration data
+    FastLED.addLeds<CHIPSET, LED_PIN, COLOR_ORDER>(leds, LAST_VISIBLE_LED + 1);//.setCorrection(TypicalSMD5050);
 
-  // write FastLED configuration data
-  FastLED.addLeds<CHIPSET, LED_PIN, COLOR_ORDER>(leds, LAST_VISIBLE_LED + 1);//.setCorrection(TypicalSMD5050);
-  
-  // set global brightness value
-  FastLED.setBrightness( scale8(STARTBRIGHTNESS, MAXBRIGHTNESS) );
+    // set global brightness value
+    FastLED.setBrightness(scale8(STARTBRIGHTNESS, MAXBRIGHTNESS));
 
-  // configure input buttons
-  pinMode(MODEBUTTON, INPUT_PULLUP);
-  pinMode(BRIGHTNESSBUTTON, INPUT_PULLUP);
-
-}
-
-// list of functions that will be displayed
-functionList effectList[] = {threeSine,
-                             threeDee,
-                             plasma,
-                             confetti,
-                             rider,
-                             glitter,
-                             slantBars,
-                             colorFill,
-                             sideRain };
-
-// Timing parameters
-#define cycleTime 15000
-#define hueTime 30
-
-// Runs over and over until power off or reset
-void loop()
-{
-  currentMillis = millis(); // save the current timer value
-  updateButtons(); // read, debounce, and process the buttons
-  
-  // Check the mode button (for switching between effects)
-  switch(buttonStatus(0)) {
-    
-    case BTNRELEASED: // button was pressed and released quickly
-      cycleMillis = currentMillis; 
-      if (++currentEffect >= numEffects) currentEffect = 0; // loop to start of effect list
-      effectInit = false; // trigger effect initialization when new effect is selected
-    break;
-    
-    case BTNLONGPRESS: // button was held down for a while
-      autoCycle = !autoCycle; // toggle auto cycle mode
-      confirmBlink(); // one blue blink: auto mode. two red blinks: manual mode.
-    break;
-  
-  }
-  
-  // Check the brightness adjust button  
-  switch(buttonStatus(1)) {
-    
-    case BTNRELEASED: // button was pressed and released quickly
-      currentBrightness += 51; // increase the brightness (wraps to lowest)
-      FastLED.setBrightness(scale8(currentBrightness,MAXBRIGHTNESS));
-    break;
-    
-    case BTNLONGPRESS: // button was held down for a while
-      currentBrightness = STARTBRIGHTNESS; // reset brightness to startup value
-      FastLED.setBrightness(scale8(currentBrightness,MAXBRIGHTNESS));
-    break;
-  
-  }
-  
-  // switch to a new effect every cycleTime milliseconds
-  if (currentMillis - cycleMillis > cycleTime && autoCycle == true) {
-    cycleMillis = currentMillis; 
-    if (++currentEffect >= numEffects) currentEffect = 0; // loop to start of effect list
-    effectInit = false; // trigger effect initialization when new effect is selected
-  }
-  
-  // increment the global hue value every hueTime milliseconds
-  if (currentMillis - hueMillis > hueTime) {
-    hueMillis = currentMillis;
-    hueCycle(1); // increment the global hue value
-  }
-  
-  // run the currently selected effect every effectDelay milliseconds
-  if (currentMillis - effectMillis > effectDelay) {
-    effectMillis = currentMillis;
-    effectList[currentEffect](); // run the selected effect function
-    random16_add_entropy(1); // make the random values a bit more random-ish
-  }
-  
-  // run a fade effect too if the confetti effect is running
-  if (effectList[currentEffect] == confetti) fadeAll(1);
-      
-  FastLED.show(); // send the contents of the led memory to the LEDs
-
+    // configure input buttons
+    pinMode(MODEBUTTON, INPUT_PULLUP);
+    pinMode(BRIGHTNESSBUTTON, INPUT_PULLUP);
 }
 
 
+/* Runs over and over until power off or reset
+ */
+void loop() {
+    currentMillis = millis(); // save the current timer value
+    updateButtons();  // read, debounce, and process the buttons
+    processButtons(); // Act on the current button state
+
+    // switch to a new effect every cycleTime milliseconds
+    if (currentMillis - cycleMillis > cycleTime && autoCycle == true) {
+        cycleMillis = currentMillis;
+        if (++currentEffect >= numEffects) {
+            currentEffect = 0; // loop to start of effect list
+        }
+        effectInit = false; // trigger effect initialization when new effect is selected
+    }
+
+    // increment the global hue value every hueTime milliseconds
+    if (currentMillis - hueMillis > hueTime) {
+        hueMillis = currentMillis;
+        hueCycle(1); // increment the global hue value
+    }
+
+    // run the currently selected effect every effectDelay milliseconds
+    if (currentMillis - effectMillis > effectDelay) {
+        effectMillis = currentMillis;
+        effectList[currentEffect](); // run the selected effect function
+        random16_add_entropy(1); // make the random values a bit more random-ish
+    }
+
+    // run a fade effect too if the confetti effect is running
+    if (effectList[currentEffect] == confetti) {
+        fadeAll(1);
+    }
+
+    FastLED.show(); // send the contents of the led memory to the LEDs
+}
 
 
+/* Handles button press effects
+ */
+inline void processButtons() {
+    // Check the mode button (for switching between effects)
+    switch(buttonStatus(0)) {
+    case BTNRELEASED: // button was pressed and released quickly
+        cycleMillis = currentMillis;
+        if (++currentEffect >= numEffects) {
+            currentEffect = 0; // loop to start of effect list
+        }
+        effectInit = false; // trigger effect initialization when new effect is selected
+        break;
 
+    case BTNLONGPRESS: // button was held down for a while
+        autoCycle = !autoCycle; // toggle auto cycle mode
+        confirmBlink(); // one blue blink: auto mode. two red blinks: manual mode.
+        break;
+    }
+
+    // Check the brightness adjust button
+    switch(buttonStatus(1)) {
+    case BTNRELEASED: // button was pressed and released quickly
+        currentBrightness += STEPBRIGHTNESS; // increase the brightness (wraps to lowest)
+        FastLED.setBrightness(scale8(currentBrightness,MAXBRIGHTNESS));
+        break;
+
+    case BTNLONGPRESS: // button was held down for a while
+        currentBrightness = STARTBRIGHTNESS; // reset brightness to startup value
+        FastLED.setBrightness(scale8(currentBrightness,MAXBRIGHTNESS));
+        break;
+    }
+}
